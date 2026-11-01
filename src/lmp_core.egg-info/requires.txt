@@ -1,0 +1,6 @@
+cbor2<6,>=5.7.1
+cryptography<47,>=42
+
+[test]
+pytest<9,>=8
+pytest-asyncio<2,>=0.23

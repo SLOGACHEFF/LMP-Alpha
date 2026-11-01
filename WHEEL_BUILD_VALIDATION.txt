@@ -1,0 +1,9 @@
+Processing /mnt/data/lmp-core-v0.1
+  Preparing metadata (pyproject.toml): started
+  Preparing metadata (pyproject.toml): finished with status 'done'
+Building wheels for collected packages: lmp-core
+  Building wheel for lmp-core (pyproject.toml): started
+  Building wheel for lmp-core (pyproject.toml): finished with status 'done'
+  Created wheel for lmp-core: filename=lmp_core-0.1.0a24-py3-none-any.whl size=49643 sha256=c757866f3df20bbc5e4cf12abe5d94f3753b73ff10ec01872af5a68ba86754c0
+  Stored in directory: /tmp/pip-ephem-wheel-cache-n_1bj671/wheels/e9/b5/5d/948ab40569d38f2442201ccb5c79107bb04fa3a6c8cb7ddd08
+Successfully built lmp-core

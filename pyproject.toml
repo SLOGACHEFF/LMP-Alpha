@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lmp-core"
+version = "0.1.0a31"
+description = "Experimental reference core for Logacheff Messaging Protocol (LMP)"
+readme = "README.md"
+requires-python = ">=3.12"
+license = {text = "MIT"}
+authors = [{name = "LMP contributors"}]
+dependencies = [
+  "cbor2>=5.7.1,<6",
+  "cryptography>=42,<47",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8,<9", "pytest-asyncio>=0.23,<2"]
+
+[project.scripts]
+lmp-core = "lmp_core.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

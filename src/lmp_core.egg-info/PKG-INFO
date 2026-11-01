@@ -1,0 +1,118 @@
+Metadata-Version: 2.4
+Name: lmp-core
+Version: 0.1.0a31
+Summary: Experimental reference core for Logacheff Messaging Protocol (LMP)
+Author: LMP contributors
+License: MIT
+Requires-Python: >=3.12
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: cbor2<6,>=5.7.1
+Requires-Dist: cryptography<47,>=42
+Provides-Extra: test
+Requires-Dist: pytest<9,>=8; extra == "test"
+Requires-Dist: pytest-asyncio<2,>=0.23; extra == "test"
+Dynamic: license-file
+
+# Logacheff Messaging Protocol (LMP) — Core alpha
+
+LMP Core is an experimental Python reference implementation for the Logacheff
+Messaging Protocol. It is a development prototype, **not production-ready** and
+not a finalized wire standard.
+
+## Current scope
+
+- Length-bounded frame parsing and payload codec.
+- Principal identity documents and Ed25519 challenge-response primitives.
+- Origin-signed message envelopes with stable IDs and expiry.
+- SQLite message storage, deduplication, lease-based queues, and retry worker.
+- Signed node route records and an in-memory route cache.
+- Direct outbound sender primitives and signed relay receipt-chain primitives.
+- A `TYPE_SIGNED_ENVELOPE` network frame for origin-signed messages, with receiving-side envelope verification, explicit relay allow-lists, receipt-chain validation, and durable storage under the original author identity.
+- A separate SQLite federation outbox that persists exact signed-envelope and relay-trace bytes, with idempotent enqueue, leases, retries, and worker-scoped acknowledgements.
+- `FederationOutboxWorker`, which claims queued envelopes, validates signed next-hop route records, persists the local relay receipt before network I/O, sends through `send_signed_envelope()`, and acknowledges only a matching remote `STORED` response.
+- Optional policy-injected route failover when the selected next hop has no usable route metadata; alternate hops are validated and persisted with lease fencing, and a durable per-message route history prevents selector oscillation.
+
+Important gaps remain: identity proofs are not yet bound to a TLS exporter; the outbox worker now connects queued envelopes to the signed-envelope sender for a configured next hop, but route discovery, automatic next-hop selection, and full multi-hop orchestration are still incomplete; stored message bodies are not encrypted at rest; and end-to-end encryption is not implemented. Do not expose this prototype to untrusted networks or use it for sensitive production communications.
+
+## Requirements
+
+- Python 3.12+
+- Dependencies from `pyproject.toml` (`cbor2` and `cryptography`)
+
+Install for development:
+
+```bash
+python -m pip install -e ".[test]"
+python -m pytest -q
+```
+
+**Alpha31 release gate:** the full test suite with the real `cbor2` dependency, including the three-node TLS lost-ACK test, must pass on Python 3.12 and 3.13 before advancing the version. See [`docs/ALPHA31_CI_GATE.md`](docs/ALPHA31_CI_GATE.md) for the exact criteria and current blocker.
+
+Run an individual test module:
+
+```bash
+python -m pytest -q tests/test_relay.py
+```
+
+## Federation relay prototype
+
+The `send_signed_envelope()` API sends an immutable origin-signed envelope. A relay
+adds a signed receipt to the trace; a receiver configured with `allowed_relays`
+validates the full trace and requires its authenticated peer to match the last
+receipt. The receiver stores the original `origin_principal_id`, not the relay,
+as the message sender. The caller must provide explicit allow-lists at both ends.
+`FederationOutboxWorker` provides a durable single-next-hop send loop for controlled testing. It does not discover routes or automatically compute a multi-hop path, and it is not a production federation service.
+
+## Security notes
+
+- TLS transport security, LMP identity verification, authorization, and message
+  end-to-end encryption are separate concerns; not all are implemented.
+- A valid signature authenticates a statement, not the truth of its claims.
+- `STORED` means durable local acceptance, not recipient delivery or reading.
+- Retry delivery is at-least-once in failure scenarios; stable message IDs and
+  receiver-side deduplication are required. Exactly-once delivery is not claimed.
+- Relay authorization fails closed when no explicit relay allow-list is supplied.
+- Alpha wire formats may change without compatibility guarantees.
+
+See `SECURITY.md`, `docs/ARCHITECTURE.md`, `docs/THREAT_MODEL.md`, and
+`docs/RELAY_POLICY.md` for additional details.
+
+
+### Three-node federation integration (alpha19)
+
+`NodeConfig` can optionally be configured with both `federation_outbox` and
+`federation_route_selector`. The selector receives a recipient string and returns
+the next-hop Principal ID, or `None` when the message is local/not to be forwarded.
+When a next hop is selected, the receiving node enqueues the exact origin-signed
+envelope bytes and received relay-trace bytes before replying `STORED`. Configure
+both fields together; they are intentionally opt-in. This does not implement
+automatic route discovery or route computation.
+
+A real TLS integration test in `tests/test_federation_three_node.py` exercises
+A → B → C and restarts B between inbound acceptance and outbound forwarding.
+Run it with the declared dependencies installed using:
+
+```bash
+python -m pytest -q tests/test_federation_three_node.py
+```
+
+
+
+### Outbox lease fencing (alpha20)
+
+Federation outbox claims now include an unguessable per-claim fencing token. All state mutations require both the worker ID and current token; a worker whose lease expired or was reclaimed cannot acknowledge, retry, fail, or update the relay trace using a stale claim. Existing SQLite outbox databases are migrated automatically.
+
+
+### Ambiguous delivery outcomes (alpha21)
+
+The three-node integration test now simulates the destination accepting a message durably while the relay loses the acknowledgement. The relay retries with the persisted origin envelope and receipt trace; the destination deduplicates the repeated logical message, and the relay marks the outbox item `SENT` only after a subsequent correlated `STORED` acknowledgement. This is at-least-once transport with idempotent storage, not a claim of exactly-once network delivery.
+
+
+### Route failover (alpha23)
+
+The outbox worker accepts an optional `route_failover(item, failed_next_hop)` callback. If the current hop lacks a usable signed route record or configured identity document, the callback may return an alternate Principal ID. The worker rejects the origin and identities already present in the relay trace, verifies the alternate signed route, and persists the change under the active lease token. A durable route-attempt table prevents the callback from repeatedly cycling between hops. This is a configured failover hook, not automatic route discovery; network connection failures still use retry/backoff rather than switching hops.
+
+### Expired federation messages (alpha22)
+
+The federation worker checks the signed envelope expiry before routing or network I/O. Expired entries transition to the terminal `EXPIRED` state under the current lease token rather than consuming retry attempts. This does not replace TTL enforcement by receiving nodes; it prevents this sender's durable outbox from repeatedly attempting messages whose signed validity window has closed.

@@ -1,0 +1,2 @@
+[console_scripts]
+lmp-core = lmp_core.cli:main
